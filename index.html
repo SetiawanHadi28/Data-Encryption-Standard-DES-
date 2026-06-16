@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DES Simulator — Kriptografi</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+  <header>
+    <div class="header-badge">Data Encryption Standard</div>
+    <h1>DES <span>Simulator</span></h1>
+    <p>Algoritma Kriptografi · 64-bit Plaintext · 64-bit Kunci · Enkripsi &amp; Dekripsi · 16 Round Feistel</p>
+  </header>
+
+  <div class="container">
+
+    <!-- ═══ INPUT FORM ═══ -->
+    <div class="card">
+      <div class="card-title">Konfigurasi Input</div>
+
+      <div class="input-type-row">
+        <span>Format Input:</span>
+        <label><input type="radio" name="inputType" value="hex" checked onchange="switchInputType()"> Hexadecimal (16 digit)</label>
+        <label><input type="radio" name="inputType" value="bin" onchange="switchInputType()"> Binary (64 bit)</label>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group" id="grp-text">
+          <label>Plaintext / Ciphertext</label>
+          <input id="inp-text" type="text" maxlength="16" placeholder="0123456789ABCDEF" autocomplete="off">
+          <span class="hint" id="hint-text">Masukkan 16 digit heksadesimal</span>
+          <span class="err-msg">Format tidak valid!</span>
+        </div>
+        <div class="form-group" id="grp-key">
+          <label>Kunci / Key</label>
+          <input id="inp-key" type="text" maxlength="16" placeholder="133457799BBCDFF1" autocomplete="off">
+          <span class="hint" id="hint-key">Masukkan 16 digit heksadesimal</span>
+          <span class="err-msg">Format tidak valid!</span>
+        </div>
+        <div class="form-group">
+          <label>Mode Operasi</label>
+          <div class="mode-group">
+            <label><input type="radio" name="mode" value="encrypt" checked> 🔒 Enkripsi</label>
+            <label><input type="radio" name="mode" value="decrypt"> 🔓 Dekripsi</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="process()">▶ Process</button>
+        <button class="btn btn-reset" onclick="resetAll()">↺ Reset</button>
+        <button class="btn btn-outline" onclick="roundTripTest()">⟳ Round Trip Test</button>
+      </div>
+    </div>
+
+    <!-- ═══ RESULT BOX ═══ -->
+    <div class="result-box" id="result-box">
+      <div class="result-mode" id="result-mode-label">HASIL ENKRIPSI</div>
+      <div id="rt-status-container"></div>
+      <div class="result-value" id="result-bin">--------</div>
+      <div class="result-hex" id="result-hex">--------</div>
+      <div class="result-actions">
+        <button class="btn btn-reset btn-sm" onclick="copyResult()">📋 Copy Result</button>
+        <button class="btn btn-reset btn-sm" onclick="downloadLog()">💾 Export Log</button>
+      </div>
+    </div>
+
+    <!-- ═══ REFERENCE TABLES ═══ -->
+    <div class="card">
+      <div class="card-title">Tabel Referensi DES (Standar FIPS 46-3)</div>
+      <div class="ref-grid" id="ref-tables-container">
+        <!-- Injected by ui.js initRefTables() -->
+      </div>
+    </div>
+
+    <!-- ═══ STEPS TOGGLE ═══ -->
+    <div id="steps-section" style="display:none;">
+      <div class="steps-toggle" id="steps-toggle" onclick="toggleSteps()">
+        <span class="toggle-label">Tampilkan Solusi Penyelesaian (Step-by-Step)</span>
+        <span class="toggle-arrow">▼</span>
+      </div>
+      <div class="steps-content" id="steps-content">
+        <div id="steps-html"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ SCRIPTS ═══ -->
+  <script src="js/utils.js"></script>
+  <script src="js/permutations.js"></script>
+  <script src="js/sboxes.js"></script>
+  <script src="js/keySchedule.js"></script>
+  <script src="js/des.js"></script>
+  <script src="js/ui.js"></script>
+
+  <script>
+    // ═══════════════════════════════════════════════════════
+    //   MAIN CONTROLLER
+    // ═══════════════════════════════════════════════════════
+    let currentTrace = null;
+
+    // ── Input Type Switching ──
+    function getInputType() {
+      return document.querySelector('input[name="inputType"]:checked').value;
+    }
+
+    function switchInputType() {
+      const type = getInputType();
+      const txt = document.getElementById('inp-text');
+      const key = document.getElementById('inp-key');
+      txt.value = '';
+      key.value = '';
+      document.getElementById('grp-text').classList.remove('has-error');
+      document.getElementById('grp-key').classList.remove('has-error');
+
+      if (type === 'hex') {
+        txt.maxLength = 16;
+        key.maxLength = 16;
+        txt.placeholder = '0123456789ABCDEF';
+        key.placeholder = '133457799BBCDFF1';
+        document.getElementById('hint-text').textContent = 'Masukkan 16 digit heksadesimal';
+        document.getElementById('hint-key').textContent = 'Masukkan 16 digit heksadesimal';
+      } else {
+        txt.maxLength = 64;
+        key.maxLength = 64;
+        txt.placeholder = '0000000100100011...';
+        key.placeholder = '0001001100110100...';
+        document.getElementById('hint-text').textContent = 'Masukkan 64 digit biner (0 atau 1)';
+        document.getElementById('hint-key').textContent = 'Masukkan 64 digit biner (0 atau 1)';
+      }
+    }
+
+    // ── Validation ──
+    function validateAndGet() {
+      const type = getInputType();
+      let textVal = document.getElementById('inp-text').value.trim();
+      let keyVal = document.getElementById('inp-key').value.trim();
+      let valid = true;
+
+      document.getElementById('grp-text').classList.remove('has-error');
+      document.getElementById('grp-key').classList.remove('has-error');
+
+      if (type === 'hex') {
+        textVal = textVal.toUpperCase();
+        keyVal = keyVal.toUpperCase();
+        if (!isValidHex(textVal, 16)) {
+          document.getElementById('grp-text').classList.add('has-error');
+          valid = false;
+        }
+        if (!isValidHex(keyVal, 16)) {
+          document.getElementById('grp-key').classList.add('has-error');
+          valid = false;
+        }
+      } else {
+        if (!isValidBinary(textVal, 64)) {
+          document.getElementById('grp-text').classList.add('has-error');
+          valid = false;
+        }
+        if (!isValidBinary(keyVal, 64)) {
+          document.getElementById('grp-key').classList.add('has-error');
+          valid = false;
+        }
+      }
+
+      if (!valid) return null;
+
+      // Convert to bit arrays
+      let textBin = type === 'hex' ? hexToBin(textVal) : textVal;
+      let keyBin  = type === 'hex' ? hexToBin(keyVal)  : keyVal;
+
+      return {
+        textBits: strToBitArray(textBin),
+        keyBits:  strToBitArray(keyBin)
+      };
+    }
+
+    // ── Process ──
+    function process() {
+      const input = validateAndGet();
+      if (!input) return;
+
+      const mode = document.querySelector('input[name="mode"]:checked').value;
+      currentTrace = runDES(input.textBits, input.keyBits, mode);
+
+      showResult(currentTrace);
+    }
+
+    // ── Show Result ──
+    function showResult(trace, rtResult) {
+      const rbox = document.getElementById('result-box');
+      const modeLabel = document.getElementById('result-mode-label');
+      const rBin = document.getElementById('result-bin');
+      const rHex = document.getElementById('result-hex');
+      const rtContainer = document.getElementById('rt-status-container');
+
+      rbox.classList.add('show');
+
+      if (rtResult !== undefined) {
+        modeLabel.textContent = 'ROUND TRIP TEST';
+        rtContainer.innerHTML = `<div class="rt-status ${rtResult ? 'success' : 'failed'}">${rtResult ? '✓ SUCCESS' : '✗ FAILED'}</div>`;
+      } else {
+        modeLabel.textContent = trace.mode === 'encrypt' ? '🔒 HASIL ENKRIPSI' : '🔓 HASIL DEKRIPSI';
+        rtContainer.innerHTML = '';
+      }
+
+      rBin.textContent = formatBits(trace.resultBin, 4);
+      rHex.textContent = 'Hex: ' + trace.resultHex;
+
+      // Build steps
+      document.getElementById('steps-html').innerHTML = buildStepsHTML(trace);
+      document.getElementById('steps-section').style.display = 'block';
+
+      // Scroll
+      rbox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // ── Round Trip Test ──
+    function roundTripTest() {
+      const input = validateAndGet();
+      if (!input) return;
+
+      // Encrypt
+      const encTrace = runDES(input.textBits, input.keyBits, 'encrypt');
+      // Decrypt the ciphertext
+      const decTrace = runDES(encTrace.result, input.keyBits, 'decrypt');
+
+      // Compare
+      const originalHex = binToHex(input.textBits.join(''));
+      const decryptedHex = decTrace.resultHex;
+      const success = (originalHex === decryptedHex);
+
+      currentTrace = decTrace;
+      showResult(decTrace, success);
+    }
+
+    // ── Reset ──
+    function resetAll() {
+      document.getElementById('inp-text').value = '';
+      document.getElementById('inp-key').value = '';
+      document.getElementById('result-box').classList.remove('show');
+      document.getElementById('steps-section').style.display = 'none';
+      document.getElementById('grp-text').classList.remove('has-error');
+      document.getElementById('grp-key').classList.remove('has-error');
+      document.getElementById('rt-status-container').innerHTML = '';
+
+      const t = document.getElementById('steps-toggle');
+      const c = document.getElementById('steps-content');
+      t.classList.remove('open');
+      c.classList.remove('open');
+
+      currentTrace = null;
+    }
+
+    // ── Steps Toggle ──
+    function toggleSteps() {
+      const t = document.getElementById('steps-toggle');
+      const c = document.getElementById('steps-content');
+      t.classList.toggle('open');
+      c.classList.toggle('open');
+      if (c.classList.contains('open')) {
+        c.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    // ── Copy Result ──
+    async function copyResult() {
+      if (!currentTrace) return;
+      const text = currentTrace.resultHex;
+      const ok = await copyToClipboard(text);
+      if (ok) {
+        const btn = document.querySelector('.result-actions .btn:first-child');
+        const orig = btn.textContent;
+        btn.textContent = '✓ Copied!';
+        setTimeout(() => btn.textContent = orig, 1500);
+      }
+    }
+
+    // ── Export Log ──
+    function downloadLog() {
+      if (!currentTrace) return;
+      exportLog(currentTrace);
+    }
+
+    // ── Live input filtering ──
+    document.getElementById('inp-text').addEventListener('input', function () {
+      const type = getInputType();
+      if (type === 'hex') {
+        this.value = this.value.replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+      } else {
+        this.value = this.value.replace(/[^01]/g, '');
+      }
+      document.getElementById('grp-text').classList.remove('has-error');
+    });
+
+    document.getElementById('inp-key').addEventListener('input', function () {
+      const type = getInputType();
+      if (type === 'hex') {
+        this.value = this.value.replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+      } else {
+        this.value = this.value.replace(/[^01]/g, '');
+      }
+      document.getElementById('grp-key').classList.remove('has-error');
+    });
+
+    // Enter key
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Enter') process();
+    });
+  </script>
+</body>
+
+</html>
